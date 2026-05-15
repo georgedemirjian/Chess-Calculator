@@ -22,7 +22,7 @@ class AnalyzeRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 # Classification labels ordered from best to worst.
-MoveClassification = Literal["best", "excellent", "inaccuracy", "mistake", "blunder", "forced"]
+MoveClassification = Literal["best", "excellent", "good", "inaccuracy", "mistake", "blunder", "forced"]
 
 
 # ---------------------------------------------------------------------------
@@ -46,10 +46,10 @@ class MoveAnalysis(BaseModel):
     san:         str                    # Standard Algebraic Notation: "Nf3", "O-O", "e8=Q+"
     uci:         str                    # UCI format: "g1f3", "e1g1", "e7e8q"
 
-    # Board FEN of the position BEFORE this move is played.
-    # Included so the frontend can optionally render the board at any move,
-    # and so StockfishService knows which position to evaluate.
+    # FEN of the position BEFORE this move — used by StockfishService for evaluation.
     fen_before: str
+    # FEN of the position AFTER this move — used by the frontend to display the board.
+    fen_after:  str
 
     # --- Move-type flags (derived from python-chess, no Stockfish needed) ---
     piece_moved:   str                  # "P", "N", "B", "R", "Q", or "K"

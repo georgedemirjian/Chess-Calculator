@@ -196,7 +196,7 @@ def parse(pgn_string: str) -> Dict[str, Any]:
             ) from exc
 
         # Collect all metadata from the current (pre-move) board state.
-        moves.append(_extract_move(ply, move, board, san))
+        move_data = _extract_move(ply, move, board, san)
 
         # Advance the board. chess.Board.push() validates legality and raises
         # ValueError if the move is illegal — catches corrupted PGN move sequences.
@@ -206,6 +206,11 @@ def parse(pgn_string: str) -> Dict[str, Any]:
             raise ValueError(
                 f"Illegal move at ply {ply + 1} ({san}): {exc}"
             ) from exc
+
+        # fen_after must be captured after push — it is the position the frontend
+        # renders when this move is selected.
+        move_data["fen_after"] = board.fen()
+        moves.append(move_data)
 
     # ------------------------------------------------------------------
     # Step 3: Confirm the game has actual content

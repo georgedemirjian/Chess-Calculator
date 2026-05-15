@@ -56,6 +56,7 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
             san=m["san"],
             uci=m["uci"],
             fen_before=m["fen_before"],
+            fen_after=m["fen_after"],
             piece_moved=m["piece_moved"],
             is_capture=m["is_capture"],
             is_en_passant=m["is_en_passant"],

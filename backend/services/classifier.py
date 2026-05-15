@@ -4,24 +4,25 @@ Move Classifier — converts a centipawn loss into a human-readable label.
 Classification thresholds (from the moving player's perspective):
 
     best        cp_loss == 0  AND  move matches the engine's top choice
-    excellent   cp_loss <= 10
-    inaccuracy  10 < cp_loss <= 100
-    mistake     100 < cp_loss <= 300
-    blunder     cp_loss > 300
-    forced      only one legal move existed in the position (no classification)
+    excellent   cp_loss < 20
+    good        cp_loss < 50
+    inaccuracy  cp_loss < 90
+    mistake     cp_loss < 200
+    blunder     cp_loss >= 200
+    forced      only one legal move existed in the position
 
-These thresholds mirror those used by Lichess and are intentionally simple
-for the MVP. They can be tuned or extended (e.g., "good", "brilliant") later.
+Thresholds are defined in _THRESHOLDS and can be tuned without touching the logic.
 """
 
 from models.schemas import MoveClassification
 
 
-# Thresholds defined once so they're easy to tune without hunting through logic.
+# (upper_bound_exclusive, label) — evaluated in order; first match wins.
 _THRESHOLDS: list[tuple[int, MoveClassification]] = [
-    (10,  "excellent"),
-    (100, "inaccuracy"),
-    (300, "mistake"),
+    (20,  "excellent"),
+    (50,  "good"),
+    (90,  "inaccuracy"),
+    (200, "mistake"),
 ]
 
 
@@ -45,7 +46,7 @@ def classify_move(
         return "best"
 
     for threshold, label in _THRESHOLDS:
-        if cp_loss <= threshold:
+        if cp_loss < threshold:
             return label
 
     return "blunder"

@@ -3,7 +3,8 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Request
 
 from models.schemas import AnalyzeRequest, AnalyzeResponse, GameInfo, MoveAnalysis
-from services import classifier, pgn_parser
+from services import centipawn_utils, classifier, pgn_parser
+from services.probability_utils import compute_avg_wp_loss
 
 router = APIRouter()
 
@@ -14,9 +15,9 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
     Analyze a chess game from a PGN string.
 
     Pipeline:
-        1. Parse PGN → game metadata + per-move data    ✅
-        2. Evaluate each position with Stockfish         ✅
-        3. Classify moves and compute ACPL               ✅
+        1. Parse PGN → game metadata + per-move data
+        2. Evaluate each position with Stockfish (eval, WP, effective CPL, mate distance)
+        3. Classify moves by WP loss; compute raw ACPL, effective ACPL, and avg WP loss
     """
     try:
         game = pgn_parser.parse(request.pgn)
@@ -34,21 +35,34 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Stockfish analysis failed: {exc}")
 
-    white_cp_losses: list[int] = []
-    black_cp_losses: list[int] = []
+    # Separate accumulators per color.
+    # raw_cp_losses  → raw ACPL (for ML feature extraction)
+    # eff_cp_losses  → effective/capped ACPL (for human-facing display)
+    # wp_losses      → average WP loss (primary accuracy signal)
+    white_raw_cp:  list[int]   = []
+    black_raw_cp:  list[int]   = []
+    white_eff_cp:  list[int]   = []
+    black_eff_cp:  list[int]   = []
+    white_wp_loss: list[float] = []
+    black_wp_loss: list[float] = []
+
     moves: list[MoveAnalysis] = []
 
     for m in enriched:
         label = classifier.classify_move(
-            cp_loss=m["cp_loss"],
+            wp_loss=m["wp_loss"],
             is_best_move=m["is_best_move"],
             is_forced=m["is_forced"],
         )
 
         if m["color"] == "white":
-            white_cp_losses.append(m["cp_loss"])
+            white_raw_cp.append(m["cp_loss"])
+            white_eff_cp.append(m["effective_cp_loss"])
+            white_wp_loss.append(m["wp_loss"])
         else:
-            black_cp_losses.append(m["cp_loss"])
+            black_raw_cp.append(m["cp_loss"])
+            black_eff_cp.append(m["effective_cp_loss"])
+            black_wp_loss.append(m["wp_loss"])
 
         moves.append(MoveAnalysis(
             move_number=m["move_number"],
@@ -67,6 +81,11 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
             eval_before=m["eval_before"],
             eval_after=m["eval_after"],
             cp_loss=m["cp_loss"],
+            effective_cp_loss=m["effective_cp_loss"],
+            wp_before=m["wp_before"],
+            wp_after=m["wp_after"],
+            wp_loss=m["wp_loss"],
+            mate_after=m["mate_after"],
             classification=label,
         ))
 
@@ -82,7 +101,11 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
             opening=game["opening"],
         ),
         moves=moves,
-        acpl_white=classifier.compute_acpl(white_cp_losses),
-        acpl_black=classifier.compute_acpl(black_cp_losses),
+        acpl_white=centipawn_utils.compute_acpl(white_raw_cp),
+        acpl_black=centipawn_utils.compute_acpl(black_raw_cp),
+        acpl_white_effective=centipawn_utils.compute_effective_acpl(white_eff_cp),
+        acpl_black_effective=centipawn_utils.compute_effective_acpl(black_eff_cp),
+        avg_wp_loss_white=compute_avg_wp_loss(white_wp_loss),
+        avg_wp_loss_black=compute_avg_wp_loss(black_wp_loss),
         total_moves=game["total_moves"],
     )

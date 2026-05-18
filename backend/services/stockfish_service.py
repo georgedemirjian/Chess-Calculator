@@ -16,6 +16,9 @@ import chess
 import chess.engine
 
 from config import STOCKFISH_DEPTH, STOCKFISH_PATH
+from services.centipawn_utils import compute_effective_cp_loss
+from services.evaluation_utils import eval_to_win_prob
+from services.probability_utils import compute_wp_loss
 
 _MATE_SCORE = 10_000  # cp value substituted for a forced mate in either direction
 
@@ -38,14 +41,16 @@ class StockfishService:
             self._engine.quit()
             self._engine = None
 
-    def _evaluate_position(self, board: chess.Board) -> tuple[int, str | None, int]:
+    def _evaluate_position(self, board: chess.Board) -> tuple[int, str | None, int, int | None]:
         """
         Evaluate a single position.
 
-        Returns (cp, best_move_uci, legal_move_count):
+        Returns (cp, best_move_uci, legal_move_count, mate_in):
             cp              — centipawns from White's perspective (positive = White better)
             best_move_uci   — engine's top choice in UCI format, None for terminal positions
             legal_move_count — 0 for checkmate/stalemate, used to detect forced moves
+            mate_in         — moves until forced mate from White's POV (positive=white mates,
+                              negative=black mates, 0=checkmate already on the board, None=no forced mate)
         """
         assert self._engine is not None, "open() must be called before evaluating positions."
 
@@ -53,21 +58,27 @@ class StockfishService:
         if not legal_moves:
             # Terminal position — no engine call needed.
             if board.is_checkmate():
-                # The side to move has been mated: they lose.
                 cp = -_MATE_SCORE if board.turn == chess.WHITE else _MATE_SCORE
+                mate_in: int | None = 0  # checkmate has already occurred
             else:
                 cp = 0  # Stalemate or insufficient material
-            return cp, None, 0
+                mate_in = None
+            return cp, None, 0, mate_in
 
         info = self._engine.analyse(board, chess.engine.Limit(depth=self._depth))
+        score = info["score"].white()
 
-        # .white() normalises the score to White's POV regardless of whose turn it is.
-        cp = info["score"].white().score(mate_score=_MATE_SCORE)
+        if score.is_mate():
+            mate_in = score.mate()  # positive = white mates in N, negative = black mates in N
+            cp = _MATE_SCORE if mate_in > 0 else -_MATE_SCORE  # type: ignore[operator]
+        else:
+            mate_in = None
+            cp = score.score(mate_score=_MATE_SCORE)
 
         pv = info.get("pv") or []
         best_uci = pv[0].uci() if pv else None
 
-        return cp, best_uci, len(legal_moves)
+        return cp, best_uci, len(legal_moves), mate_in
 
     def analyse_game(self, moves: list[dict]) -> list[dict]:
         """
@@ -100,8 +111,8 @@ class StockfishService:
 
         enriched: list[dict] = []
         for i, move in enumerate(moves):
-            cp_before, best_uci, legal_count = evals[i]
-            cp_after, _, _ = evals[i + 1]
+            cp_before, best_uci, legal_count, _ = evals[i]
+            cp_after, _, _, mate_after = evals[i + 1]
 
             is_forced = legal_count == 1
             # Both UCIs come from chess.Move.uci(), so formatting is consistent.
@@ -121,6 +132,11 @@ class StockfishService:
                 "cp_loss": cp_loss,
                 "is_best_move": is_best_move,
                 "is_forced": is_forced,
+                "wp_before":         eval_to_win_prob(cp_before),
+                "wp_after":          eval_to_win_prob(cp_after),
+                "wp_loss":           compute_wp_loss(cp_before, cp_after, move["color"]),
+                "effective_cp_loss": compute_effective_cp_loss(cp_loss, cp_before),
+                "mate_after":        mate_after,
             })
 
         return enriched

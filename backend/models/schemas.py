@@ -67,7 +67,20 @@ class MoveAnalysis(BaseModel):
     eval_after:     Optional[int] = None
 
     # Centipawn loss from the moving player's perspective (always >= 0).
-    cp_loss:        Optional[int] = None
+    cp_loss:           Optional[int]   = None
+    # Contextually capped CPL: min(raw_cp_loss, |eval_before|, MAX_ADVANTAGE_CP).
+    # Prevents mate scores and large-advantage blunders from distorting ACPL.
+    effective_cp_loss: Optional[int]   = None
+
+    # Win probability (White's perspective) before and after the move.
+    wp_before: Optional[float] = None
+    wp_after:  Optional[float] = None
+    # Win probability lost by the moving player (always >= 0).
+    wp_loss:   Optional[float] = None
+
+    # Mate distance in the position after this move (White's POV).
+    # Positive = white mates in N, negative = black mates in N, 0 = checkmate already on board.
+    mate_after: Optional[int] = None
 
     classification: Optional[MoveClassification] = None
 
@@ -77,6 +90,19 @@ class AnalyzeResponse(BaseModel):
     player_black: str
     game_info:    GameInfo
     moves:        List[MoveAnalysis]
-    acpl_white:   float    # Average centipawn loss for White across all their moves
-    acpl_black:   float    # Average centipawn loss for Black across all their moves
-    total_moves:  int      # Total half-moves (plies) in the game
+
+    # Raw ACPL — uncapped, for ML feature extraction and advanced analytics.
+    acpl_white: float
+    acpl_black: float
+
+    # Effective ACPL — contextually capped to avoid mate-score distortion.
+    # Better suited for human-facing display than raw ACPL.
+    acpl_white_effective: float
+    acpl_black_effective: float
+
+    # Average WP loss per move — primary accuracy signal.
+    # Bounded in [0.0, 1.0]; not affected by mate score magnitudes.
+    avg_wp_loss_white: float
+    avg_wp_loss_black: float
+
+    total_moves: int  # Total half-moves (plies) in the game

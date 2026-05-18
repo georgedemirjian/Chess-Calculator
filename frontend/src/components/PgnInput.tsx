@@ -13,6 +13,8 @@ const EXAMPLE_PGN = `[Event "Casual game"]
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6
 8. c3 O-O 9. h3 Nb8 10. d4 Nbd7 1-0`;
 
+import { playButtonClick } from '../lib/sounds';
+
 export default function PgnInput({ pgn, loading, onChange, onAnalyze }: Props) {
   return (
     <div className="flex flex-col gap-3">
@@ -38,12 +40,12 @@ export default function PgnInput({ pgn, loading, onChange, onAnalyze }: Props) {
         "
       />
       <button
-        onClick={onAnalyze}
+        onClick={() => { playButtonClick(); onAnalyze(); }}
         disabled={loading || !pgn.trim()}
         className="
           w-full py-3 px-6 rounded-xl font-semibold text-sm tracking-wide
           bg-primary-600 hover:bg-primary-500 active:bg-primary-600
-          disabled:opacity-40 disabled:cursor-not-allowed
+          disabled:opacity-90 disabled:cursor-not-allowed
           text-white
           transition-all duration-150
           flex items-center justify-center gap-2

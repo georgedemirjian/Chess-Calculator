@@ -24,6 +24,12 @@ export interface MoveAnalysis {
   eval_before: number | null;
   eval_after: number | null;
   cp_loss: number | null;
+  effective_cp_loss: number | null;
+  wp_before: number | null;
+  wp_after: number | null;
+  wp_loss: number | null;
+  // Mate distance after this move from White's POV: positive=white mates, negative=black mates, 0=checkmate occurred.
+  mate_after: number | null;
   classification: MoveClassification | null;
 }
 
@@ -41,7 +47,11 @@ export interface AnalyzeResponse {
   player_black: string;
   game_info: GameInfo;
   moves: MoveAnalysis[];
-  acpl_white: number;
+  acpl_white: number;           // raw ACPL — for ML analytics
   acpl_black: number;
+  acpl_white_effective: number; // capped ACPL — for human display
+  acpl_black_effective: number;
+  avg_wp_loss_white: number;    // primary accuracy signal [0.0–1.0]
+  avg_wp_loss_black: number;
   total_moves: number;
 }

@@ -1,16 +1,21 @@
 interface Props {
-  evalCp: number; // centipawns from White's perspective (positive = White better)
+  evalCp: number;   // centipawns from White's perspective (positive = White better)
+  mateAfter?: number | null; // from Stockfish: positive=white mates in N, negative=black mates in N, 0=checkmate
 }
 
-export default function EvalBar({ evalCp }: Props) {
+export default function EvalBar({ evalCp, mateAfter }: Props) {
   // tanh compresses the infinite eval range smoothly to a fraction.
   // Dividing by 600 means ±600 cp ≈ ±76% — mates reach the extremes.
   const whiteFrac = Math.max(0.05, Math.min(0.95, 0.5 + 0.5 * Math.tanh(evalCp / 600)));
   const blackFrac = 1 - whiteFrac;
 
   const absValue = Math.abs(evalCp);
-  const isMate = absValue >= 10_000;
-  const scoreText = isMate ? 'M' : (absValue / 100).toFixed(1);
+  const hasMate = mateAfter !== undefined && mateAfter !== null;
+  const scoreText = hasMate
+    ? (mateAfter === 0 ? 'M' : `M${Math.abs(mateAfter)}`)
+    : absValue >= 10_000
+      ? 'M'
+      : (absValue / 100).toFixed(1);
 
   const whiteWinning = evalCp > 0;
   const blackWinning = evalCp < 0;

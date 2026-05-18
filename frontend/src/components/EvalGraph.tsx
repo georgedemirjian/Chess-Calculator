@@ -13,6 +13,7 @@ interface Props {
   moves: MoveAnalysis[];
   selectedIndex: number | null;
   onSelectMove: (index: number) => void;
+  flipped?: boolean;
 }
 
 const CAP = 1000; // display cap in centipawns
@@ -35,12 +36,13 @@ interface DataPoint {
   rawEval: number;
 }
 
-export default function EvalGraph({ moves, selectedIndex, onSelectMove }: Props) {
+export default function EvalGraph({ moves, selectedIndex, onSelectMove, flipped = false }: Props) {
+  const sign = flipped ? -1 : 1;
   const data: DataPoint[] = moves.map((m, i) => ({
     ply: i,
     label: `${m.move_number}${m.color === 'black' ? '…' : '.'} ${m.san}`,
-    eval: capEval(m.eval_after),
-    rawEval: m.eval_after ?? 0,
+    eval: sign * capEval(m.eval_after),
+    rawEval: sign * (m.eval_after ?? 0),
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,7 +56,7 @@ export default function EvalGraph({ moves, selectedIndex, onSelectMove }: Props)
   return (
     <div className="flex flex-col gap-1">
       <p className="text-xs font-medium text-gray-500 dark:text-gray-500 uppercase tracking-wide px-1">
-        Evaluation · White's perspective
+        Evaluation · {flipped ? "Black's" : "White's"} perspective
       </p>
       <div className="h-36 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -95,29 +97,28 @@ export default function EvalGraph({ moves, selectedIndex, onSelectMove }: Props)
               cursor={{ stroke: '#6366f1', strokeWidth: 1, strokeOpacity: 0.5 }}
             />
 
-            {/* White advantage (positive half) */}
+            {/* Positive half — whose advantage this represents swaps when flipped */}
             <Area
               type="monotone"
               dataKey="eval"
-              stroke="#6366f1"
+              stroke={flipped ? '#374151' : '#6366f1'}
               strokeWidth={1.5}
-              fill="url(#evalGradientWhite)"
+              fill={flipped ? 'url(#evalGradientBlack)' : 'url(#evalGradientWhite)'}
               dot={false}
-              activeDot={{ r: 3, fill: '#6366f1' }}
+              activeDot={{ r: 3, fill: flipped ? '#374151' : '#6366f1' }}
               baseValue={0}
-              // Only render positive values
               data={data.map((d) => ({ ...d, eval: Math.max(0, d.eval) }))}
             />
 
-            {/* Black advantage (negative half) */}
+            {/* Negative half */}
             <Area
               type="monotone"
               dataKey="eval"
-              stroke="#374151"
+              stroke={flipped ? '#6366f1' : '#374151'}
               strokeWidth={1.5}
-              fill="url(#evalGradientBlack)"
+              fill={flipped ? 'url(#evalGradientWhite)' : 'url(#evalGradientBlack)'}
               dot={false}
-              activeDot={{ r: 3, fill: '#374151' }}
+              activeDot={{ r: 3, fill: flipped ? '#6366f1' : '#374151' }}
               baseValue={0}
               data={data.map((d) => ({ ...d, eval: Math.min(0, d.eval) }))}
             />

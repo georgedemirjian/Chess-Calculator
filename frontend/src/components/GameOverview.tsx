@@ -1,9 +1,26 @@
 import type { AnalyzeResponse, MoveClassification } from '../lib/types';
 import { CLASSIFICATION_META } from '../lib/classificationMeta';
+import { playButtonClick } from '../lib/sounds';
 
-// Lichess-inspired ACPL → accuracy mapping, clamped to [0, 100].
-function acplToAccuracy(acpl: number): number {
-  return Math.max(0, Math.min(100, 100 * Math.exp(-0.008 * acpl)));
+/**
+ * Map average WP loss per move to an accuracy percentage.
+ *
+ * Formula: accuracy = 100 × exp(−4 × avgWpLoss)
+ *
+ * WP loss is already position-context-aware — small changes in equal positions
+ * register strongly, large changes in already-decided positions register weakly.
+ * This means accuracy automatically discounts errors in hopeless positions,
+ * matching the behaviour of Lichess and Chess.com.
+ *
+ * Calibration:
+ *   0.00 avg WP loss → 100%   (perfect play)
+ *   0.02             →  92%   (GM level)
+ *   0.05             →  82%   (strong club player)
+ *   0.10             →  67%   (casual player)
+ *   0.20             →  45%   (beginner)
+ */
+function wpLossToAccuracy(avgWpLoss: number): number {
+  return Math.max(0, Math.min(100, 100 * Math.exp(-4 * avgWpLoss)));
 }
 
 const ROWS: MoveClassification[] = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'];
@@ -29,8 +46,8 @@ interface Props {
 export default function GameOverview({ result, onStart }: Props) {
   const whiteCounts = countClassifications(result.moves, 'white');
   const blackCounts = countClassifications(result.moves, 'black');
-  const whiteAccuracy = acplToAccuracy(result.acpl_white);
-  const blackAccuracy = acplToAccuracy(result.acpl_black);
+  const whiteAccuracy = wpLossToAccuracy(result.avg_wp_loss_white);
+  const blackAccuracy = wpLossToAccuracy(result.avg_wp_loss_black);
 
   return (
     <div className="flex flex-col gap-0 bg-white dark:bg-gray-900 rounded-xl border-2 border-gray-300 dark:border-gray-700 shadow-md dark:shadow-none overflow-hidden">
@@ -85,11 +102,11 @@ export default function GameOverview({ result, onStart }: Props) {
       {/* ACPL + Accuracy */}
       <div className="grid grid-cols-2 border-t-2 border-gray-200 dark:border-gray-800">
         <div className="px-4 py-3 border-r-2 border-gray-200 dark:border-gray-800 flex flex-col gap-1">
-          <StatRow label="Avg. CP loss" value={Math.round(result.acpl_white).toString()} />
+          <StatRow label="Avg. CP loss" value={Math.round(result.acpl_white_effective).toString()} />
           <AccuracyRow accuracy={whiteAccuracy} />
         </div>
         <div className="px-4 py-3 flex flex-col gap-1">
-          <StatRow label="Avg. CP loss" value={Math.round(result.acpl_black).toString()} />
+          <StatRow label="Avg. CP loss" value={Math.round(result.acpl_black_effective).toString()} />
           <AccuracyRow accuracy={blackAccuracy} />
         </div>
       </div>
@@ -97,7 +114,7 @@ export default function GameOverview({ result, onStart }: Props) {
       {/* Start button */}
       <div className="p-4 border-t-2 border-gray-200 dark:border-gray-800">
         <button
-          onClick={onStart}
+          onClick={() => { playButtonClick(); onStart(); }}
           className="
             w-full py-3 rounded-xl font-bold text-base tracking-wide
             bg-primary-600 hover:bg-primary-500 active:bg-primary-700

@@ -2,6 +2,14 @@ import { useEffect, useCallback, useState } from 'react';
 import type { AnalyzeResponse, MoveAnalysis } from './lib/types';
 import { CLASSIFICATION_META } from './lib/classificationMeta';
 import { analyzeGame } from './api/analyze';
+import {
+  setMuted as setSoundMuted,
+  playButtonClick,
+  playMove,
+  playBest,
+  playBlunder,
+  playCheckmate,
+} from './lib/sounds';
 import ThemeToggle from './components/ThemeToggle';
 import PgnInput from './components/PgnInput';
 import GameSummary from './components/GameSummary';
@@ -36,8 +44,22 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  // 'overview' shows the GameOverview panel; 'analysis' shows the eval graph + move list.
   const [viewMode, setViewMode] = useState<'overview' | 'analysis'>('overview');
+  const [boardFlipped, setBoardFlipped] = useState(false);
+  const [muted, setMuted] = useState<boolean>(() => localStorage.getItem('muted') === 'true');
+
+  // Keep the sounds module and localStorage in sync with React muted state.
+  useEffect(() => {
+    setSoundMuted(muted);
+    localStorage.setItem('muted', String(muted));
+  }, [muted]);
+
+  const toggleMuted = useCallback(() => {
+    const next = !muted;
+    setSoundMuted(next);
+    if (!next) playButtonClick(); // audible confirm when turning sound back on
+    setMuted(next);
+  }, [muted]);
 
   const handleAnalyze = useCallback(async () => {
     setLoading(true);
@@ -78,6 +100,15 @@ export default function App() {
   const selectedMove: MoveAnalysis | null =
     result && selectedIndex !== null ? result.moves[selectedIndex] : null;
 
+  // Play a classification-appropriate sound each time the viewed move changes.
+  useEffect(() => {
+    if (!selectedMove) return;
+    if (selectedMove.is_checkmate) { playCheckmate(); return; }
+    if (selectedMove.classification === 'best') { playBest(); return; }
+    if (selectedMove.classification === 'blunder') { playBlunder(); return; }
+    playMove();
+  }, [selectedMove]);
+
   const displayFen = selectedMove?.fen_after ?? STARTING_FEN;
 
   // Square highlight for the destination square of the selected move
@@ -101,7 +132,10 @@ export default function App() {
             <span className="text-xl">♟</span>
             <span className="font-bold text-gray-900 dark:text-white tracking-tight">Chess Analyzer</span>
           </div>
-          <ThemeToggle dark={dark} onToggle={toggle} />
+          <div className="flex items-center gap-1">
+            <MuteButton muted={muted} onToggle={toggleMuted} />
+            <ThemeToggle dark={dark} onToggle={toggle} />
+          </div>
         </div>
       </header>
 
@@ -133,7 +167,7 @@ export default function App() {
             {/* Back + summary bar */}
             <div className="flex items-start gap-3">
               <button
-                onClick={() => { setResult(null); setSelectedIndex(null); setViewMode('overview'); }}
+                onClick={() => { playButtonClick(); setResult(null); setSelectedIndex(null); setViewMode('overview'); }}
                 className="flex-shrink-0 mt-0.5 flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -146,8 +180,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Content grid: left col wider, right col fixed narrower */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 lg:gap-5 items-start">
+            {/* Content grid: board fills available space, right col fixed at 500px */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_500px] gap-4 lg:gap-5 items-start">
 
               {/* ── Left column: eval bar + board + info bar ── */}
               <div className="flex flex-col gap-2">
@@ -155,16 +189,19 @@ export default function App() {
                 <div className="flex gap-2 items-stretch">
                   {/* Eval bar: narrow fixed width, stretches to board height */}
                   <div className="w-7 flex-shrink-0">
-                    <EvalBar evalCp={displayEval} />
+                    <EvalBar evalCp={displayEval} mateAfter={selectedMove?.mate_after} />
                   </div>
                   {/* Board fills remaining width */}
                   <div className="flex-1 min-w-0">
-                    <ChessBoard fen={displayFen} squareStyles={squareStyles} />
+                    <ChessBoard fen={displayFen} squareStyles={squareStyles} flipped={boardFlipped} />
                   </div>
                 </div>
 
-                {/* Move info bar — spans the full width below the board row */}
-                <BoardInfoBar selectedMove={selectedMove} />
+                {/* Move info bar + flip button */}
+                <BoardInfoBar
+                  selectedMove={selectedMove}
+                  onFlip={() => { playButtonClick(); setBoardFlipped((f) => !f); }}
+                />
 
                 {/* Mobile: collapsed new-game input */}
                 <details className="lg:hidden group">
@@ -192,6 +229,7 @@ export default function App() {
                         moves={result.moves}
                         selectedIndex={selectedIndex}
                         onSelectMove={setSelectedIndex}
+                        flipped={boardFlipped}
                       />
                     </div>
                     <div
@@ -218,14 +256,63 @@ export default function App() {
   );
 }
 
+/* ── Mute button ───────────────────────────────────────────────────────────── */
+
+function MuteButton({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
+      className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150"
+    >
+      {muted ? (
+        /* Speaker X — muted */
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+          <path d="M10 3.75a.75.75 0 0 0-1.264-.546L4.703 7H3.167a.75.75 0 0 0-.7.495A6.001 6.001 0 0 0 2.5 10c0 .85.174 1.65.467 2.383a.75.75 0 0 0 .7.617H4.7l4.038 3.796A.75.75 0 0 0 10 16.25V3.75Z" />
+          <path d="M13.28 7.22a.75.75 0 0 0-1.06 1.06L13.44 9.5l-1.22 1.22a.75.75 0 1 0 1.06 1.06L14.5 10.56l1.22 1.22a.75.75 0 1 0 1.06-1.06L15.56 9.5l1.22-1.22a.75.75 0 0 0-1.06-1.06L14.5 8.44l-1.22-1.22Z" />
+        </svg>
+      ) : (
+        /* Speaker wave — unmuted */
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+          <path d="M10 3.75a.75.75 0 0 0-1.264-.546L4.703 7H3.167a.75.75 0 0 0-.7.495A6.001 6.001 0 0 0 2.5 10c0 .85.174 1.65.467 2.383a.75.75 0 0 0 .7.617H4.7l4.038 3.796A.75.75 0 0 0 10 16.25V3.75Z" />
+          <path d="M15.95 5.05a.75.75 0 0 0-1.06 1.06A6.5 6.5 0 0 1 16.5 10a6.5 6.5 0 0 1-1.61 4.39.75.75 0 0 0 1.06 1.06A8 8 0 0 0 18 10a8 8 0 0 0-2.05-4.95Z" />
+          <path d="M13.5 7.5a.75.75 0 0 0-1.06 1.06A3.5 3.5 0 0 1 13.5 10a3.5 3.5 0 0 1-1.06 1.94.75.75 0 0 0 1.06 1.06A5 5 0 0 0 15 10a5 5 0 0 0-1.5-2.5Z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 /* ── Board info bar ────────────────────────────────────────────────────────── */
 
-function BoardInfoBar({ selectedMove }: { selectedMove: MoveAnalysis | null }) {
+function BoardInfoBar({
+  selectedMove,
+  onFlip,
+}: {
+  selectedMove: MoveAnalysis | null;
+  onFlip: () => void;
+}) {
+  const flipBtn = (
+    <button
+      onClick={onFlip}
+      title="Flip board"
+      className="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+    >
+      {/* arrows-up-down */}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+        <path fillRule="evenodd" d="M2.24 6.8a.75.75 0 0 0 1.06-.04l1.95-2.1v8.59a.75.75 0 0 0 1.5 0V4.66l1.95 2.1a.75.75 0 1 0 1.1-1.02l-3.25-3.5a.75.75 0 0 0-1.1 0L2.2 5.74a.75.75 0 0 0 .04 1.06Zm8 6.4a.75.75 0 0 0-.04 1.06l3.25 3.5a.75.75 0 0 0 1.1 0l3.25-3.5a.75.75 0 1 0-1.1-1.02l-1.95 2.1V6.75a.75.75 0 0 0-1.5 0v8.59l-1.95-2.1a.75.75 0 0 0-1.06-.04Z" clipRule="evenodd" />
+      </svg>
+    </button>
+  );
+
   if (!selectedMove) {
     return (
-      <p className="text-center text-xs text-gray-400 dark:text-gray-600 py-1">
-        Starting position · select a move to navigate
-      </p>
+      <div className="flex items-center justify-between px-3 py-1">
+        <p className="text-xs text-gray-400 dark:text-gray-600">
+          Starting position · select a move to navigate
+        </p>
+        {flipBtn}
+      </div>
     );
   }
 
@@ -238,23 +325,28 @@ function BoardInfoBar({ selectedMove }: { selectedMove: MoveAnalysis | null }) {
         {selectedMove.move_number}.{selectedMove.color === 'black' ? '..' : ''}&nbsp;{selectedMove.san}
       </span>
       <div className="flex items-center gap-3">
-        {selectedMove.eval_after !== null && <EvalPill value={selectedMove.eval_after} />}
+        {selectedMove.eval_after !== null && (
+          <EvalPill value={selectedMove.eval_after} mateAfter={selectedMove.mate_after} />
+        )}
         {meta && <span className={`font-semibold ${meta.color}`}>{meta.label}</span>}
         {selectedMove.cp_loss !== null && selectedMove.cp_loss > 0 && (
           <span className="text-gray-400 dark:text-gray-500 text-xs tabular-nums">
             −{selectedMove.cp_loss} cp
           </span>
         )}
+        {flipBtn}
       </div>
     </div>
   );
 }
 
-function EvalPill({ value }: { value: number }) {
+function EvalPill({ value, mateAfter }: { value: number; mateAfter?: number | null }) {
   const capped = Math.max(-1000, Math.min(1000, value));
   const isWhiteAhead = capped >= 0;
-  const display =
-    Math.abs(capped) >= 1000
+  const hasMate = mateAfter !== undefined && mateAfter !== null;
+  const display = hasMate
+    ? (isWhiteAhead ? '+' : '-') + (mateAfter === 0 ? 'M' : `M${Math.abs(mateAfter)}`)
+    : Math.abs(capped) >= 1000
       ? isWhiteAhead ? '+M' : '-M'
       : isWhiteAhead
         ? `+${(capped / 100).toFixed(1)}`

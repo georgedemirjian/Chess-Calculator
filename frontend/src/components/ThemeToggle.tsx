@@ -1,3 +1,5 @@
+import { playButtonClick } from '../lib/sounds';
+
 interface Props {
   dark: boolean;
   onToggle: () => void;
@@ -6,7 +8,7 @@ interface Props {
 export default function ThemeToggle({ dark, onToggle }: Props) {
   return (
     <button
-      onClick={onToggle}
+      onClick={() => { playButtonClick(); onToggle(); }}
       aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
       className="
         w-9 h-9 flex items-center justify-center rounded-lg

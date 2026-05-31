@@ -1,6 +1,7 @@
 import type { AnalyzeResponse, MoveClassification } from '../lib/types';
 import { CLASSIFICATION_META } from '../lib/classificationMeta';
 import { playButtonClick } from '../lib/sounds';
+import EloEstimate from './EloEstimate';
 
 /**
  * Map average WP loss per move to an accuracy percentage.
@@ -110,6 +111,12 @@ export default function GameOverview({ result, onStart }: Props) {
           <AccuracyRow accuracy={blackAccuracy} />
         </div>
       </div>
+
+      {/* Elo performance estimate (hidden if model unavailable on backend) */}
+      <EloEstimate
+        whiteElo={result.elo_estimate_white}
+        blackElo={result.elo_estimate_black}
+      />
 
       {/* Start button */}
       <div className="p-4 border-t-2 border-gray-200 dark:border-gray-800">

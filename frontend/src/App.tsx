@@ -47,6 +47,14 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'overview' | 'analysis'>('overview');
   const [boardFlipped, setBoardFlipped] = useState(false);
   const [muted, setMuted] = useState<boolean>(() => localStorage.getItem('muted') === 'true');
+  // Best-move arrow overlay — defaults ON so first-time users see the feature.
+  const [showBestMove, setShowBestMove] = useState<boolean>(
+    () => localStorage.getItem('show_best_move') !== 'false',
+  );
+
+  useEffect(() => {
+    localStorage.setItem('show_best_move', String(showBestMove));
+  }, [showBestMove]);
 
   // Keep the sounds module and localStorage in sync with React muted state.
   useEffect(() => {
@@ -121,6 +129,20 @@ export default function App() {
   // Eval shown on the bar — 0 when no move is selected (starting position)
   const displayEval = selectedMove?.eval_after ?? 0;
 
+  // Best-move arrow for the displayed position. We deliberately skip when no
+  // move is selected (starting position) — there's no game-flow context yet.
+  // Skipped when the toggle is off, or when the position is terminal (the
+  // engine returns null best move on checkmate / stalemate).
+  const bestMoveUci = selectedMove?.best_move_next_uci ?? null;
+  const bestMoveArrows =
+    showBestMove && bestMoveUci
+      ? [{
+          startSquare: bestMoveUci.slice(0, 2),
+          endSquare:   bestMoveUci.slice(2, 4),
+          color:       'rgba(34, 197, 94, 0.55)',  // tailwind green-500 @ 55%
+        }]
+      : [];
+
   const hasResult = result !== null;
 
   return (
@@ -130,9 +152,13 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="text-xl">♟</span>
-            <span className="font-bold text-gray-900 dark:text-white tracking-tight">Chess Analyzer</span>
+            <span className="font-bold text-gray-900 dark:text-white tracking-tight">Elo Heaven - Chess Analyzer & Elo Estimator</span>
           </div>
           <div className="flex items-center gap-1">
+            <BestMoveButton
+              enabled={showBestMove}
+              onToggle={() => { playButtonClick(); setShowBestMove((v) => !v); }}
+            />
             <MuteButton muted={muted} onToggle={toggleMuted} />
             <ThemeToggle dark={dark} onToggle={toggle} />
           </div>
@@ -193,7 +219,12 @@ export default function App() {
                   </div>
                   {/* Board fills remaining width */}
                   <div className="flex-1 min-w-0">
-                    <ChessBoard fen={displayFen} squareStyles={squareStyles} flipped={boardFlipped} />
+                    <ChessBoard
+                      fen={displayFen}
+                      squareStyles={squareStyles}
+                      flipped={boardFlipped}
+                      arrows={bestMoveArrows}
+                    />
                   </div>
                 </div>
 
@@ -225,6 +256,18 @@ export default function App() {
                 ) : (
                   <>
                     <div className="bg-white dark:bg-gray-900 rounded-xl border-2 border-gray-300 dark:border-gray-700 p-4 shadow-md dark:shadow-none">
+                      <div className="flex justify-end mb-2">
+                        <button
+                          onClick={() => { playButtonClick(); setViewMode('overview'); }}
+                          title="View game summary (your current move is kept)"
+                          className="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+                            <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                          </svg>
+                          Overview
+                        </button>
+                      </div>
                       <EvalGraph
                         moves={result.moves}
                         selectedIndex={selectedIndex}
@@ -253,6 +296,36 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+/* ── Best-move arrow toggle ────────────────────────────────────────────────── */
+
+function BestMoveButton({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-label={enabled ? 'Hide best-move arrow' : 'Show best-move arrow'}
+      title={enabled ? 'Hide best-move arrow' : 'Show best-move arrow'}
+      className={`w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150 ${
+        enabled
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-gray-500 dark:text-gray-400'
+      }`}
+    >
+      {enabled ? (
+        /* Diagonal arrow — best move indicator visible */
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+          <path fillRule="evenodd" d="M5.22 14.78a.75.75 0 0 0 1.06 0l7.22-7.22v3.69a.75.75 0 0 0 1.5 0v-5.5a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0 0 1.5h3.69L5.22 13.72a.75.75 0 0 0 0 1.06Z" clipRule="evenodd" />
+        </svg>
+      ) : (
+        /* Diagonal arrow with slash — hidden */
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+          <path fillRule="evenodd" d="M5.22 14.78a.75.75 0 0 0 1.06 0l7.22-7.22v3.69a.75.75 0 0 0 1.5 0v-5.5a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0 0 1.5h3.69L5.22 13.72a.75.75 0 0 0 0 1.06Z" clipRule="evenodd" />
+          <path d="M2.97 2.97a.75.75 0 0 1 1.06 0l13 13a.75.75 0 1 1-1.06 1.06l-13-13a.75.75 0 0 1 0-1.06Z" />
+        </svg>
+      )}
+    </button>
   );
 }
 

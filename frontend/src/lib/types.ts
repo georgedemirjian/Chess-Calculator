@@ -30,6 +30,9 @@ export interface MoveAnalysis {
   wp_loss: number | null;
   // Mate distance after this move from White's POV: positive=white mates, negative=black mates, 0=checkmate occurred.
   mate_after: number | null;
+  // Engine's best move from the position AFTER this move was played (UCI, e.g.
+  // "e7e5"). Null on terminal positions. Drives the best-move arrow overlay.
+  best_move_next_uci: string | null;
   classification: MoveClassification | null;
 }
 
@@ -53,5 +56,12 @@ export interface AnalyzeResponse {
   acpl_black_effective: number;
   avg_wp_loss_white: number;    // primary accuracy signal [0.0–1.0]
   avg_wp_loss_black: number;
+
+  // Single-game Elo performance estimate (trained XGBoost regression).
+  // Null when the model isn't loaded on the server or the player had no
+  // non-forced moves to extract features from.
+  elo_estimate_white: number | null;
+  elo_estimate_black: number | null;
+
   total_moves: number;
 }

@@ -19,6 +19,7 @@ backend/.env
 # Training data — raw PGNs and processed CSVs can be hundreds of GB
 training/data/raw/*.pgn
 training/data/raw/*.state.json
+training/data/raw/_sampling_state.json
 training/data/*.csv
 training/data/*.parquet
 

@@ -64,8 +64,7 @@ import chess.pgn  # noqa: E402
 
 from config import STOCKFISH_PATH  # noqa: E402
 from services import classifier, pgn_parser  # noqa: E402
-from services.centipawn_utils import compute_effective_acpl  # noqa: E402
-from services.probability_utils import compute_avg_wp_loss  # noqa: E402
+from services.ml_service import compute_player_features  # noqa: E402
 from services.stockfish_service import StockfishService  # noqa: E402
 
 
@@ -84,11 +83,17 @@ DEFAULT_LOG_INTERVAL =   10   # print progress every N processed games
 
 # Column ordering for the output CSV. The same list is consumed by train.py
 # to ensure feature-vector alignment between training and inference.
+#
+# username and elo_bucket are metadata-only (NOT features fed into the model)
+# but are required downstream: username for player-based train/test split,
+# elo_bucket for stratified evaluation and bucket-wise diagnostics.
 CSV_COLUMNS: list[str] = [
     "game_id",
     "source_file",
     "color",
+    "username",
     "elo",
+    "elo_bucket",
     "avg_wp_loss",
     "effective_acpl",
     "best_rate",
@@ -101,6 +106,34 @@ CSV_COLUMNS: list[str] = [
     "n_moves_analyzed",
     "depth",
 ]
+
+# Mirror of collect_data.BUCKETS so the bucket label can be re-derived from elo
+# without importing collect_data (keeps the two scripts cleanly decoupled).
+BUCKETS: list[tuple[int, int]] = [
+    ( 400,  600), ( 600,  800), ( 800, 1000), (1000, 1200),
+    (1200, 1400), (1400, 1600), (1600, 1800), (1800, 2000),
+    (2000, 2200), (2200, 2400), (2400, 2600), (2600, 2800),
+]
+
+
+def _bucket_label(elo: int) -> str:
+    """Return 'lo-hi' for the bucket containing elo, or 'out_of_range'."""
+    for lo, hi in BUCKETS:
+        if lo <= elo < hi:
+            return f"{lo}-{hi}"
+    return "out_of_range"
+
+
+def _parse_sample_header(header_value: str | None) -> list[str]:
+    """
+    Decode the custom `[Sample "white,black"]` PGN header written by
+    collect_data.py. Missing header → emit both colors (back-compat with PGNs
+    collected before stratified sampling was added).
+    """
+    if not header_value:
+        return ["white", "black"]
+    parts = [p.strip() for p in header_value.split(",")]
+    return [p for p in parts if p in ("white", "black")]
 
 
 # ---------------------------------------------------------------------------
@@ -122,46 +155,6 @@ def _game_id(game: chess.pgn.Game, source_file: str, index: int) -> str:
     return hashlib.md5(fingerprint.encode()).hexdigest()[:12]
 
 
-def _player_features(enriched_moves: list[dict[str, Any]], color: str) -> dict[str, Any] | None:
-    """
-    Compute the feature vector for one player from a fully-analysed move list.
-
-    Returns None if the player has zero non-forced moves (extremely rare —
-    only possible when the game is so short the player was always forced).
-    """
-    player_moves = [m for m in enriched_moves if m["color"] == color]
-    n_total      = len(player_moves)
-    if n_total == 0:
-        return None
-
-    non_forced   = [m for m in player_moves if m["classification"] != "forced"]
-    n_non_forced = len(non_forced)
-    if n_non_forced == 0:
-        return None
-
-    counts: dict[str, int] = {
-        "best": 0, "excellent": 0, "good": 0,
-        "inaccuracy": 0, "mistake": 0, "blunder": 0,
-    }
-    for m in non_forced:
-        cls = m["classification"]
-        if cls in counts:
-            counts[cls] += 1
-
-    return {
-        "avg_wp_loss":      compute_avg_wp_loss([m["wp_loss"]           for m in non_forced]),
-        "effective_acpl":   compute_effective_acpl([m["effective_cp_loss"] for m in non_forced]),
-        "best_rate":        counts["best"]       / n_non_forced,
-        "excellent_rate":   counts["excellent"]  / n_non_forced,
-        "good_rate":        counts["good"]       / n_non_forced,
-        "inaccuracy_rate":  counts["inaccuracy"] / n_non_forced,
-        "mistake_rate":     counts["mistake"]    / n_non_forced,
-        "blunder_rate":     counts["blunder"]    / n_non_forced,
-        "forced_rate":      (n_total - n_non_forced) / n_total,
-        "n_moves_analyzed": n_non_forced,
-    }
-
-
 def analyse_one_game(
     game: chess.pgn.Game,
     stockfish: StockfishService,
@@ -170,10 +163,20 @@ def analyse_one_game(
     index: int,
 ) -> list[dict[str, Any]] | None:
     """
-    Analyse a single chess.pgn.Game and return up to two CSV rows (one per
-    player). Returns None if the game cannot be used as a training observation.
+    Analyse a single chess.pgn.Game and return CSV rows for the colors
+    requested by the `[Sample]` PGN header (default: both). Returns None if
+    the game cannot be used as a training observation.
     """
-    # --- 1. Elo labels --------------------------------------------------
+    # --- 1. Decide which colors to emit ---------------------------------
+    # collect_data.py annotates each game with the per-color bucket decision
+    # via a custom `[Sample "white,black"]` (or subset) header. We honour it
+    # so games whose only contribution is one player don't bias the dataset
+    # back toward the population mean.
+    sample_colors = _parse_sample_header(game.headers.get("Sample"))
+    if not sample_colors:
+        return None
+
+    # --- 2. Elo labels --------------------------------------------------
     # Both players must have a numeric, non-provisional rating. collect_data.py
     # already filters these, but we re-check defensively in case raw PGNs
     # were added manually.
@@ -184,7 +187,7 @@ def analyse_one_game(
     white_elo = int(white_str)
     black_elo = int(black_str)
 
-    # --- 2. Re-use backend parsing -------------------------------------
+    # --- 3. Re-use backend parsing -------------------------------------
     # str(game) re-serialises the game to PGN. pgn_parser.parse() then
     # produces the exact same move dicts the FastAPI /api/analyze route uses.
     try:
@@ -193,10 +196,10 @@ def analyse_one_game(
         # Illegal moves, empty mainline, or other PGN problems — skip.
         return None
 
-    # --- 3. Stockfish analysis -----------------------------------------
+    # --- 4. Stockfish analysis -----------------------------------------
     enriched = stockfish.analyse_game(parsed["moves"])
 
-    # --- 4. Classify each move (same call signature as backend router) --
+    # --- 5. Classify each move (same call signature as backend router) --
     for m in enriched:
         m["classification"] = classifier.classify_move(
             wp_loss=m["wp_loss"],
@@ -204,18 +207,25 @@ def analyse_one_game(
             is_forced=m["is_forced"],
         )
 
-    # --- 5. Per-player aggregates ---------------------------------------
-    white_feats = _player_features(enriched, "white")
-    black_feats = _player_features(enriched, "black")
-    if white_feats is None or black_feats is None:
-        return None
-
-    gid = _game_id(game, source_file, index)
+    # --- 6. Per-player aggregates — only for sampled colors -------------
+    gid    = _game_id(game, source_file, index)
     common = {"game_id": gid, "source_file": source_file, "depth": depth}
-    return [
-        {**common, "color": "white", "elo": white_elo, **white_feats},
-        {**common, "color": "black", "elo": black_elo, **black_feats},
-    ]
+    rows: list[dict[str, Any]] = []
+    for color in sample_colors:
+        feats = compute_player_features(enriched, color)
+        if feats is None:
+            continue
+        elo      = white_elo if color == "white" else black_elo
+        username = game.headers.get("White" if color == "white" else "Black", "")
+        rows.append({
+            **common,
+            "color":      color,
+            "username":   username,
+            "elo":        elo,
+            "elo_bucket": _bucket_label(elo),
+            **feats,
+        })
+    return rows or None
 
 
 # ---------------------------------------------------------------------------

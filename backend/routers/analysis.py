@@ -54,6 +54,9 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
             is_best_move=m["is_best_move"],
             is_forced=m["is_forced"],
         )
+        # Mutate enriched in place so MLService.predict_for_player can read
+        # the classification labels alongside the raw move data.
+        m["classification"] = label
 
         if m["color"] == "white":
             white_raw_cp.append(m["cp_loss"])
@@ -86,8 +89,16 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
             wp_after=m["wp_after"],
             wp_loss=m["wp_loss"],
             mate_after=m["mate_after"],
+            best_move_next_uci=m["best_move_next_uci"],
             classification=label,
         ))
+
+    # Single-game Elo performance estimate. predict_for_player returns None
+    # when the model isn't loaded or the player has no non-forced moves;
+    # the schema accepts None so the frontend can hide the section gracefully.
+    ml = http_request.app.state.ml
+    elo_white = ml.predict_for_player(enriched, "white")
+    elo_black = ml.predict_for_player(enriched, "black")
 
     return AnalyzeResponse(
         player_white=game["white"],
@@ -107,5 +118,7 @@ async def analyze_game(request: AnalyzeRequest, http_request: Request) -> Analyz
         acpl_black_effective=centipawn_utils.compute_effective_acpl(black_eff_cp),
         avg_wp_loss_white=compute_avg_wp_loss(white_wp_loss),
         avg_wp_loss_black=compute_avg_wp_loss(black_wp_loss),
+        elo_estimate_white=elo_white,
+        elo_estimate_black=elo_black,
         total_moves=game["total_moves"],
     )

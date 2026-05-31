@@ -6,27 +6,45 @@ Start the server:
 
 The app is structured in three layers:
     routers/    HTTP layer — request validation, response shaping
-    services/   Business logic — PGN parsing, Stockfish, classification
+    services/   Business logic — PGN parsing, Stockfish, classification, ML
     models/     Pydantic schemas — shared types used by both layers
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import FRONTEND_ORIGIN
+from config import FRONTEND_ORIGIN, STOCKFISH_DEPTH
 from routers import analysis
+from services.ml_service import MLService
 from services.stockfish_service import StockfishService
+
+ML_MODEL_PATH = Path(__file__).resolve().parent / "ml" / "elo_model.joblib"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    engine = StockfishService()
+    # Load the ML model first so we can align Stockfish depth with the model's
+    # training depth — features extracted at a different depth would shift the
+    # input distribution and miscalibrate the predicted Elo.
+    ml = MLService(ML_MODEL_PATH)
+    ml.open()
+
+    depth = ml.depth if ml.is_loaded else STOCKFISH_DEPTH
+    if ml.is_loaded and ml.depth != STOCKFISH_DEPTH:
+        print(f"[startup] Stockfish depth overridden to {depth} to match ML model "
+              f"(env STOCKFISH_DEPTH={STOCKFISH_DEPTH})")
+
+    engine = StockfishService(depth=depth)
     engine.open()
+
     app.state.stockfish = engine
+    app.state.ml        = ml
     yield
     engine.close()
+    ml.close()
 
 
 app = FastAPI(

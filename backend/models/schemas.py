@@ -82,6 +82,11 @@ class MoveAnalysis(BaseModel):
     # Positive = white mates in N, negative = black mates in N, 0 = checkmate already on board.
     mate_after: Optional[int] = None
 
+    # Engine's best move from the position AFTER this move was played, in UCI
+    # format (e.g. "e7e5"). None on terminal positions. Used by the frontend
+    # to draw a best-move arrow on the displayed board.
+    best_move_next_uci: Optional[str] = None
+
     classification: Optional[MoveClassification] = None
 
 
@@ -104,5 +109,11 @@ class AnalyzeResponse(BaseModel):
     # Bounded in [0.0, 1.0]; not affected by mate score magnitudes.
     avg_wp_loss_white: float
     avg_wp_loss_black: float
+
+    # Single-game Elo performance estimate from the trained XGBoost model.
+    # Optional because the model may not be loaded (no artifact on disk) or
+    # the player may have no non-forced moves to extract features from.
+    elo_estimate_white: Optional[int] = None
+    elo_estimate_black: Optional[int] = None
 
     total_moves: int  # Total half-moves (plies) in the game

@@ -112,7 +112,7 @@ class StockfishService:
         enriched: list[dict] = []
         for i, move in enumerate(moves):
             cp_before, best_uci, legal_count, _ = evals[i]
-            cp_after, _, _, mate_after = evals[i + 1]
+            cp_after,  best_uci_after, _, mate_after = evals[i + 1]
 
             is_forced = legal_count == 1
             # Both UCIs come from chess.Move.uci(), so formatting is consistent.
@@ -137,6 +137,10 @@ class StockfishService:
                 "wp_loss":           compute_wp_loss(cp_before, cp_after, move["color"]),
                 "effective_cp_loss": compute_effective_cp_loss(cp_loss, cp_before),
                 "mate_after":        mate_after,
+                # Engine's best move from the position AFTER this move was played
+                # (i.e. what the opponent should play next). None on terminal
+                # positions — the frontend uses this for the best-move arrow.
+                "best_move_next_uci": best_uci_after,
             })
 
         return enriched

@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import FRONTEND_ORIGIN, STOCKFISH_DEPTH
+from config import FRONTEND_ORIGINS, STOCKFISH_DEPTH
 from routers import analysis
 from services.ml_service import MLService
 from services.stockfish_service import StockfishService
@@ -58,7 +58,7 @@ app = FastAPI(
 # In production, replace FRONTEND_ORIGIN with your deployed frontend URL.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
+    allow_origins=FRONTEND_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

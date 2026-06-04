@@ -1,6 +1,8 @@
 import type { AnalyzeResponse } from '../lib/types';
 
-const API_BASE = 'http://localhost:8000/api';
+// Backend URL. Set VITE_API_BASE at build time (Vercel env var) to point at
+// the deployed API. Defaults to the local FastAPI dev server.
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api';
 
 export async function analyzeGame(pgn: string): Promise<AnalyzeResponse> {
   const res = await fetch(`${API_BASE}/analyze`, {

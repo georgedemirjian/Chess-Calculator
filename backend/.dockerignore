@@ -1,0 +1,8 @@
+# Don't ship secrets or local-only files into the image.
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

@@ -12,6 +12,7 @@ import {
 } from './lib/sounds';
 import ThemeToggle from './components/ThemeToggle';
 import PgnInput from './components/PgnInput';
+import ExampleGames from './components/ExampleGames';
 import GameSummary from './components/GameSummary';
 import ChessBoard from './components/ChessBoard';
 import EvalBar from './components/EvalBar';
@@ -185,6 +186,16 @@ export default function App() {
                   {error}
                 </div>
               )}
+              <ExampleGames
+                disabled={loading}
+                onLoad={(data) => {
+                  setError(null);
+                  setSelectedIndex(null);
+                  setViewMode('overview');
+                  setResult(data);
+                }}
+                onError={setError}
+              />
             </div>
           </div>
         ) : (
